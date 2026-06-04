@@ -47,7 +47,11 @@ public class WarehouseService {
         this.productMapper = productMapper;
     }
 
-    public Warehouse getById(Long id) { return warehouseMapper.selectById(id); }
+    public Warehouse getById(Long id) {
+        Warehouse w = warehouseMapper.selectById(id);
+        if (w != null) w.setHasChildren(hasChildren(w.getId()));
+        return w;
+    }
 
     public List<Warehouse> tree() {
         List<Warehouse> all = warehouseMapper.selectList(new LambdaQueryWrapper<Warehouse>()
@@ -84,7 +88,10 @@ public class WarehouseService {
             wrapper.and(w -> w.like(Warehouse::getName, keyword).or().like(Warehouse::getCode, keyword));
         }
         List<Warehouse> list = warehouseMapper.selectList(wrapper.orderByAsc(Warehouse::getId));
-        for (Warehouse w : list) enrichStats(w);
+        for (Warehouse w : list) {
+            enrichStats(w);
+            w.setHasChildren(hasChildren(w.getId()));
+        }
         return list;
     }
 

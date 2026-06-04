@@ -14,6 +14,26 @@ const parentCandidates = ref<any[]>([])
 const query = ref({ keyword: '', status: undefined as number | undefined })
 const form = reactive<any>({ name: '', code: '', contact: '', phone: '', address: '', status: 1, remark: '', level: 4, parentId: undefined })
 
+// 搜索时缓存上级名称
+const whCache = reactive(new Map<number, any>())
+async function loadWhName(id: number) {
+  if (whCache.has(id)) return whCache.get(id)
+  try {
+    const r = await request.get(`/warehouse/${id}`)
+    if (r.data.data) whCache.set(id, r.data.data)
+    return r.data.data
+  } catch { return null }
+}
+function getParentPath(w: any): string {
+  const parts: string[] = []
+  let pid = w.parentId
+  while (pid && whCache.has(pid)) {
+    parts.unshift(whCache.get(pid).name)
+    pid = whCache.get(pid).parentId
+  }
+  return parts.length ? ' · ' + parts.join(' / ') : ''
+}
+
 async function fetchTree() {
   loading.value = true
   try {
@@ -21,6 +41,14 @@ async function fetchTree() {
       isSearchMode.value = true
       const res = await request.get('/warehouse/search', { params: { keyword: query.value.keyword } })
       tableData.value = (res.data.data || []).filter((w: any) => query.value.status === undefined || w.status === query.value.status)
+      // 异步加载所有上级名称（递归到根）
+      async function loadAncestors(id: number) {
+        const node = await loadWhName(id)
+        if (node?.parentId) await loadAncestors(node.parentId)
+      }
+      for (const w of tableData.value) {
+        if (w.parentId) await loadAncestors(w.parentId)
+      }
     } else {
       isSearchMode.value = false
       const res = await request.get('/warehouse/roots')
@@ -128,7 +156,7 @@ onMounted(fetchTree)
     <div class="page-header"><h2>仓库管理</h2>
       <div>
         <el-button type="primary" @click="openCreate()">+ 新增仓库</el-button>
-        <el-button @click="handleImport">导入Excel</el-button>
+        <el-button v-if="userStore.isAdmin" @click="handleImport">导入Excel</el-button>
         <el-tooltip content="请确保无跨级仓库数据（如1级直接到3级），中间层级不能为空" placement="top">
           <span style="color:#f56c6c;font-size:12px;cursor:help;margin-left:2px;">⚠</span>
         </el-tooltip>
@@ -151,7 +179,7 @@ onMounted(fetchTree)
     <div class="table-container">
       <el-table :data="tableData" v-loading="loading" stripe border row-key="id"
         :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
-        :lazy="!isSearchMode" :load="loadChildren">
+        lazy :load="loadChildren">
         <el-table-column prop="name" label="仓库名称" width="230">
           <template #default="{ row }">
             <span :style="{ fontWeight: row.level === 1 ? 'bold' : 'normal', color: row.status === 0 ? '#999' : '' }">{{ row.name }}</span>
@@ -160,6 +188,11 @@ onMounted(fetchTree)
           </template>
         </el-table-column>
         <el-table-column prop="code" label="编码" width="200" />
+        <el-table-column label="上级路径" min-width="180" v-if="isSearchMode">
+          <template #default="{ row }">
+            <span style="font-size:12px;color:#909399;">{{ getParentPath(row) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="address" label="地址" width="160" show-overflow-tooltip />
         <el-table-column prop="contact" label="负责人" width="100" />
         <el-table-column prop="phone" label="联系电话" width="140" />

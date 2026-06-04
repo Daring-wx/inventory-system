@@ -3,16 +3,19 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import request, { downloadFile } from '../../api/request'
 import type { Inventory } from '../../types/api'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 
 const loading = ref(false)
+const renderKey = ref(0)
 const allList = ref<Inventory[]>([])
 const rootNodes = ref<any[]>([])
 const selectedWarehouseNode = ref<any[] | null>(null)
 const childrenCache = reactive(new Map<number, any[]>())
 
 const query = ref({ productName: '', warehouseId: undefined as number | undefined, warehouseName: '' })
+const codeSearchInput = ref('')
 
 // 批量选择仓库
 const selectedWarehouseIds = reactive(new Set<number>())
@@ -66,30 +69,39 @@ function getParentPath(w: any): string {
 }
 async function onWarehouseSelect(val: any) {
   query.value.warehouseId = val ?? undefined
-  if (val) {
-    expanded.clear()
-    const ancestorIds: number[] = []
-    async function loadParentChain(id: number): Promise<any> {
-      const res = await request.get(`/warehouse/${id}`)
-      const node = res.data.data
-      if (!node) return null
-      if (node.parentId) {
-        ancestorIds.push(node.parentId)
-        const parent = await loadParentChain(node.parentId)
-        if (parent) {
-          parent.children = [node]
-          return parent
-        }
-      }
-      return node
+  loading.value = true
+  try {
+    if (val) {
+      expanded.clear()
+      const [, treeResult] = await Promise.all([
+        fetchData(false),
+        (async () => {
+          const ancestorIds: number[] = []
+          const res = await request.get(`/warehouse/${val}`)
+          const node = res.data.data
+          if (!node) return null
+          async function loadParents(n: any): Promise<any> {
+            if (!n.parentId) return n
+            ancestorIds.push(n.parentId)
+            const pr = await request.get(`/warehouse/${n.parentId}`)
+            const pn = pr.data.data
+            if (!pn) return n
+            pn.children = [n]
+            return loadParents(pn)
+          }
+          const tree = await loadParents(node)
+          ancestorIds.forEach(id => expanded.add(id))
+          return tree
+        })(),
+      ])
+      selectedWarehouseNode.value = treeResult ? [treeResult] : []
+      renderKey.value++
+    } else {
+      selectedWarehouseNode.value = null
+      renderKey.value++
+      await fetchData()
     }
-    const tree = await loadParentChain(val)
-    ancestorIds.forEach(id => expanded.add(id))
-    selectedWarehouseNode.value = tree ? [tree] : []
-  } else {
-    selectedWarehouseNode.value = null
-  }
-  fetchData()
+  } finally { loading.value = false }
 }
 
 // 收集某个节点下的所有叶子仓库ID（仅已加载的子节点）
@@ -116,15 +128,15 @@ function toggleWarehouseSelect(node: any) {
   }
 }
 
-async function fetchData() {
-  loading.value = true
+async function fetchData(showLoading = true) {
+  if (showLoading) loading.value = true
   try {
     const params: Record<string, any> = { page: 1, size: 999 }
     if (query.value.productName) params.productName = query.value.productName
     if (query.value.warehouseId !== undefined) params.warehouseId = query.value.warehouseId
     const res = await request.get('/inventory/page', { params })
     allList.value = res.data.data.records || []
-  } finally { loading.value = false }
+  } finally { if (showLoading) loading.value = false }
 }
 
 async function fetchWarehouseRoots() {
@@ -149,16 +161,38 @@ async function toggle(id: number) {
 }
 function isExpanded(id: number) { return expanded.has(id) }
 
-function handleSearch() { selectedWarehouseIds.clear(); fetchData() }
-function handleReset() {
+async function handleSearch() {
+  selectedWarehouseIds.clear()
+  if (codeSearchInput.value?.trim()) {
+    await handleCodeSearch()
+  } else {
+    await fetchData()
+  }
+}
+async function handleReset() {
   query.value = { productName: '', warehouseId: undefined, warehouseName: '' }
+  codeSearchInput.value = ''
   selectedWarehouseNode.value = null
   rootNodes.value = []
   childrenCache.clear()
   expanded.clear()
   selectedWarehouseIds.clear()
-  fetchWarehouseRoots()
-  fetchData()
+  await fetchWarehouseRoots()
+  await fetchData()
+}
+async function handleCodeSearch() {
+  const code = codeSearchInput.value?.trim()
+  if (!code) return
+  try {
+    const res = await request.get('/warehouse/search', { params: { keyword: code } })
+    const match = (res.data.data || []).find((w: any) => w.code === code)
+    if (match) {
+      query.value.warehouseId = match.id
+      await onWarehouseSelect(match.id)
+    } else {
+      ElMessage.info('未找到该编码的仓库')
+    }
+  } catch { /* handled */ }
 }
 function handleExport() {
   selectedWarehouseIds.clear()
@@ -189,10 +223,10 @@ function buildTreeWithStock(nodes: any[]): any[] {
     const invs = invByWarehouse.value.get(n.id) || []
     const qty = invs.reduce((s: number, i: any) => s + (i.quantity || 0), 0)
     const amt = invs.reduce((s: number, i: any) => s + ((i.costPrice || 0) * (i.quantity || 0)), 0)
-    const cachedChildren = childrenCache.get(n.id)
+    const kids = childrenCache.get(n.id)?.length ? childrenCache.get(n.id)! : (n.children || [])
     const node: any = { ...n, _pc: invs.length, _qty: qty, _amt: amt }
-    if (cachedChildren?.length) {
-      node.children = buildTreeWithStock(cachedChildren)
+    if (kids.length) {
+      node.children = buildTreeWithStock(kids)
     }
     return node
   })
@@ -238,6 +272,7 @@ onMounted(() => { fetchWarehouseRoots(); fetchData() })
 
     <div class="search-bar">
       <el-input v-model="query.productName" placeholder="商品名称/编码" clearable style="width:200px" @keyup.enter="handleSearch" @clear="handleSearch" />
+      <el-input v-model="codeSearchInput" placeholder="仓库编码快速定位" clearable style="width:200px" @keyup.enter="handleCodeSearch" @clear="handleCodeSearch" />
       <el-select
         v-model="query.warehouseId"
         :remote-method="onWhSearch"
@@ -259,10 +294,10 @@ onMounted(() => { fetchWarehouseRoots(); fetchData() })
       <el-button @click="handleReset">重置</el-button>
     </div>
 
-    <div v-loading="loading">
+    <div v-loading="loading" :key="renderKey">
       <div v-if="!flatList.length && !loading" style="text-align:center;padding:60px 0;color:#999;">暂无库存数据</div>
 
-      <div v-for="node in flatList" :key="node.id" class="tree-row" :style="{ paddingLeft: (node.depth * 24 + 16) + 'px' }">
+      <div v-for="(node, idx) in flatList" :key="'n' + node.id + '_' + idx" class="tree-row" :style="{ paddingLeft: (node.depth * 24 + 16) + 'px' }">
         <div class="tree-node" :class="'level-' + node.level">
           <span v-if="node.children?.length || node.hasChildren" class="toggle-icon" @click="toggle(node.id)">{{ isExpanded(node.id) ? '▼' : '▶' }}</span>
           <span v-else class="toggle-icon" style="visibility:hidden;">▶</span>
@@ -305,7 +340,7 @@ onMounted(() => { fetchWarehouseRoots(); fetchData() })
         </div>
       </div>
 
-      <div class="grand-total" v-if="flatList.length">
+      <div class="grand-total" v-if="flatList.length && !selectedWarehouseNode">
         <span class="grand-total-label">📊 全部仓库合计</span>
         <span>{{ grandTotal.qty }} 件 · 金额 ¥{{ grandTotal.amt.toFixed(2) }}</span>
       </div>

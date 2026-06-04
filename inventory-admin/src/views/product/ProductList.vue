@@ -228,8 +228,8 @@ onMounted(async () => { const r = await request.get('/warehouse/tree'); warehous
     <div class="page-header">
       <h2>商品管理</h2>
       <div>
-        <el-button type="primary" @click="openCreate">新增商品</el-button>
-        <el-button @click="handleImport">导入Excel</el-button>
+        <el-button type="primary" @click="openCreate" v-if="userStore.isAdmin">新增商品</el-button>
+        <el-button @click="handleImport" v-if="userStore.isAdmin">导入Excel</el-button>
         <el-button @click="downloadFile('/product/import/template', '商品导入模板.xlsx')">下载模板</el-button>
         <el-tooltip content="表头与导入模板一致，修改后可直接导入" placement="top">
           <el-button @click="downloadFile('/product/export-for-import', '商品数据(可回导).xlsx')">导出规范Excel</el-button>
