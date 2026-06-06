@@ -131,8 +131,25 @@ async function handleToggleStatus(row: Product) {
 }
 
 function handleExport(selected = false) {
-  const url = selected && selectedIds.value.length ? `/product/export?ids=${selectedIds.value.join(',')}` : '/product/export'
-  downloadFile(url, '商品管理.xlsx')
+  if (selected && selectedIds.value.length) {
+    downloadFile(`/product/export?ids=${selectedIds.value.join(',')}`, '商品管理.xlsx')
+    return
+  }
+  const params = new URLSearchParams()
+  if (query.name) params.append('name', query.name)
+  if (query.code) params.append('code', query.code)
+  if (query.status !== undefined) params.append('status', String(query.status))
+  if (query.warehouseId) params.append('warehouseId', String(query.warehouseId))
+  if (query.categoryId) params.append('categoryId', String(query.categoryId))
+  if (query.alertOnly !== undefined) params.append('alertOnly', String(query.alertOnly))
+  if (query.minPrice) params.append('minPrice', String(query.minPrice))
+  if (query.maxPrice) params.append('maxPrice', String(query.maxPrice))
+  if (query.minSalePrice) params.append('minSalePrice', String(query.minSalePrice))
+  if (query.maxSalePrice) params.append('maxSalePrice', String(query.maxSalePrice))
+  if (query.startDate) params.append('startDate', query.startDate)
+  if (query.endDate) params.append('endDate', query.endDate)
+  const qs = params.toString()
+  downloadFile(`/product/export${qs ? '?' + qs : ''}`, '商品管理.xlsx')
 }
 
 const fileInput = ref<HTMLInputElement>()
@@ -283,6 +300,7 @@ onMounted(async () => { const r = await request.get('/warehouse/tree'); warehous
         <el-option label="仅看预警" :value="true" />
         <el-option label="正常" :value="false" />
       </el-select>
+      <el-button type="success" @click="handleExport()">导出筛选结果</el-button>
     </div>
 
     <!-- 批量操作 -->

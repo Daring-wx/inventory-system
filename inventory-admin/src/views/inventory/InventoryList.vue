@@ -131,9 +131,8 @@ function toggleWarehouseSelect(node: any) {
 async function fetchData(showLoading = true) {
   if (showLoading) loading.value = true
   try {
-    const params: Record<string, any> = { page: 1, size: 999 }
+    const params: Record<string, any> = { page: 1, size: 9999 }
     if (query.value.productName) params.productName = query.value.productName
-    if (query.value.warehouseId !== undefined) params.warehouseId = query.value.warehouseId
     const res = await request.get('/inventory/page', { params })
     allList.value = res.data.data.records || []
   } finally { if (showLoading) loading.value = false }

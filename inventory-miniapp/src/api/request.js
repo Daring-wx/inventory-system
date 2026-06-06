@@ -1,6 +1,6 @@
 // 修改此处 BASE_URL 为实际后端地址（开发用局域网IP，生产用域名）
-const BASE_URL = 'https://hzsf.nengchengcloud.com/api/v1'
-// const BASE_URL = 'http://192.168.10.162:8888/api/v1'
+// const BASE_URL = 'https://hzsf.nengchengcloud.com/api/v1'
+const BASE_URL = 'http://192.168.1.229:8888/api/v1'
 
 function getToken() {
   return uni.getStorageSync('token')

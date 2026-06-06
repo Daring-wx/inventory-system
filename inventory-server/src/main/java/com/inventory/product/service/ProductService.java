@@ -70,23 +70,26 @@ public class ProductService {
                 .ge(minSalePrice != null, Product::getSalePrice, minSalePrice)
                 .le(maxSalePrice != null, Product::getSalePrice, maxSalePrice)
                 .ge(startDateTime != null, Product::getCreateTime, startDateTime)
-                .le(endDateTime != null, Product::getCreateTime, endDateTime)
-                .orderByDesc(Product::getId);
+                .le(endDateTime != null, Product::getCreateTime, endDateTime);
+        // 仓库筛选：先查商品ID再加IN条件，确保分页正常
+        if (warehouseId != null) {
+            List<Long> ids = inventoryMapper.selectList(
+                    new LambdaQueryWrapper<Inventory>().eq(Inventory::getWarehouseId, warehouseId))
+                    .stream().map(Inventory::getProductId).distinct().collect(Collectors.toList());
+            if (!ids.isEmpty()) {
+                wrapper.in(Product::getId, ids);
+            } else {
+                page.setRecords(new ArrayList<>());
+                page.setTotal(0);
+                return page;
+            }
+        }
+        wrapper.orderByDesc(Product::getId);
         Page<Product> result = productMapper.selectPage(page, wrapper);
         for (Product p : result.getRecords()) {
             enrichInventory(p, warehouseId);
         }
         enrichCategoryNames(result.getRecords());
-        // 仓库筛选
-        if (warehouseId != null) {
-            List<Long> ids = inventoryMapper.selectList(
-                    new LambdaQueryWrapper<Inventory>().eq(Inventory::getWarehouseId, warehouseId))
-                    .stream().map(Inventory::getProductId).distinct().collect(Collectors.toList());
-            List<Product> filtered = result.getRecords().stream()
-                    .filter(p -> ids.contains(p.getId())).collect(Collectors.toList());
-            result.setRecords(filtered);
-            result.setTotal(filtered.size());
-        }
         if (Boolean.TRUE.equals(alertOnly)) {
             List<Product> filtered = result.getRecords().stream()
                     .filter(p -> "warning".equals(p.getAlertStatus()))
@@ -112,6 +115,40 @@ public class ProductService {
         List<Product> list = productMapper.selectList(new LambdaQueryWrapper<Product>().orderByDesc(Product::getId));
         for (Product p : list) enrichInventory(p);
         enrichCategoryNames(list);
+        return list;
+    }
+
+    public List<Product> listFiltered(String name, String code, Integer status, Boolean alertOnly,
+            Long warehouseId, Long categoryId, java.math.BigDecimal minPrice, java.math.BigDecimal maxPrice,
+            java.math.BigDecimal minSalePrice, java.math.BigDecimal maxSalePrice, String startDate, String endDate) {
+        LocalDateTime startDateTime = (startDate != null && !startDate.isEmpty()) ? LocalDate.parse(startDate).atStartOfDay() : null;
+        LocalDateTime endDateTime = (endDate != null && !endDate.isEmpty()) ? LocalDate.parse(endDate).atTime(LocalTime.MAX) : null;
+        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
+                .like(name != null, Product::getName, name)
+                .like(code != null, Product::getCode, code)
+                .eq(status != null, Product::getStatus, status)
+                .eq(categoryId != null, Product::getCategoryId, categoryId)
+                .ge(minPrice != null, Product::getPurchasePrice, minPrice)
+                .le(maxPrice != null, Product::getPurchasePrice, maxPrice)
+                .ge(minSalePrice != null, Product::getSalePrice, minSalePrice)
+                .le(maxSalePrice != null, Product::getSalePrice, maxSalePrice)
+                .ge(startDateTime != null, Product::getCreateTime, startDateTime)
+                .le(endDateTime != null, Product::getCreateTime, endDateTime);
+        if (warehouseId != null) {
+            List<Long> ids = inventoryMapper.selectList(
+                    new LambdaQueryWrapper<Inventory>().eq(Inventory::getWarehouseId, warehouseId))
+                    .stream().map(Inventory::getProductId).distinct().collect(Collectors.toList());
+            if (!ids.isEmpty()) wrapper.in(Product::getId, ids);
+            else return new ArrayList<>();
+        }
+        wrapper.orderByDesc(Product::getId);
+        List<Product> list = productMapper.selectList(wrapper);
+        for (Product p : list) enrichInventory(p, warehouseId);
+        enrichCategoryNames(list);
+        // 预警筛选
+        if (alertOnly != null) {
+            list = list.stream().filter(p -> Boolean.TRUE.equals(alertOnly) ? "warning".equals(p.getAlertStatus()) : "normal".equals(p.getAlertStatus())).collect(Collectors.toList());
+        }
         return list;
     }
 
@@ -169,18 +206,26 @@ public class ProductService {
         categoryMapper.selectList(null).forEach(c ->
                 catCache.put(c.getName() + ":" + (c.getParentId() == null ? 0 : c.getParentId()), c.getId()));
 
-        // 加载已有商品名称到集合（用于查重）
-        Set<String> existingNames = productMapper.selectList(
-                new LambdaQueryWrapper<Product>().select(Product::getName))
-                .stream().map(Product::getName).collect(Collectors.toSet());
+        // 加载已有商品：按名称和编码建立映射
+        List<Product> allProducts = productMapper.selectList(null);
+        Map<String, Product> byCode = new HashMap<>();
+        Map<String, Product> byName = new HashMap<>();
+        for (Product p : allProducts) {
+            if (p.getCode() != null) byCode.put(p.getCode(), p);
+            if (p.getName() != null) byName.put(p.getName(), p);
+        }
 
-        int created = 0;
+        int count = 0;
         for (ProductImportVO row : rows) {
             if (row.getName() == null || row.getName().trim().isEmpty()) continue;
             String name = row.getName().trim();
 
-            // 同名商品跳过
-            if (existingNames.contains(name)) continue;
+            // 按编码或名称匹配已有商品，存在则更新，否则新建
+            Product existing = null;
+            if (row.getCode() != null && !row.getCode().trim().isEmpty()) {
+                existing = byCode.get(row.getCode().trim());
+            }
+            if (existing == null) existing = byName.get(name);
 
             // 解析分类路径
             Long categoryId = null;
@@ -207,29 +252,43 @@ public class ProductService {
                 categoryId = parentId;
             }
 
-            Product p = new Product();
-            p.setName(name);
-            p.setCategoryId(categoryId);
-            p.setSpec(row.getSpec());
-            p.setUnit(row.getUnit());
-            p.setPurchasePrice(row.getPurchasePrice());
-            p.setSalePrice(row.getSalePrice());
-            p.setMinStock(row.getMinStock());
-            p.setMaxStock(row.getMaxStock());
-            p.setStatus("停用".equals(row.getStatus()) ? 0 : 1);
-
-            // 编码：Excel有填则用（重复则自动生成），否则自动生成
-            if (row.getCode() != null && !row.getCode().trim().isEmpty()
-                    && productMapper.countAllByCode(row.getCode().trim()) == 0) {
-                p.setCode(row.getCode().trim());
+            if (existing != null) {
+                // 更新已有商品
+                existing.setCategoryId(categoryId);
+                if (row.getSpec() != null) existing.setSpec(row.getSpec());
+                if (row.getUnit() != null) existing.setUnit(row.getUnit());
+                if (row.getPurchasePrice() != null) existing.setPurchasePrice(row.getPurchasePrice());
+                if (row.getSalePrice() != null) existing.setSalePrice(row.getSalePrice());
+                if (row.getMinStock() != null) existing.setMinStock(row.getMinStock());
+                if (row.getMaxStock() != null) existing.setMaxStock(row.getMaxStock());
+                if (row.getStatus() != null) existing.setStatus("停用".equals(row.getStatus()) ? 0 : 1);
+                productMapper.updateById(existing);
             } else {
-                p.setCode(generateProductCode());
+                // 新建商品
+                Product p = new Product();
+                p.setName(name);
+                p.setCategoryId(categoryId);
+                p.setSpec(row.getSpec());
+                p.setUnit(row.getUnit());
+                p.setPurchasePrice(row.getPurchasePrice());
+                p.setSalePrice(row.getSalePrice());
+                p.setMinStock(row.getMinStock());
+                p.setMaxStock(row.getMaxStock());
+                p.setStatus("停用".equals(row.getStatus()) ? 0 : 1);
+                // 编码：Excel有填则用，否则自动生成
+                if (row.getCode() != null && !row.getCode().trim().isEmpty()
+                        && productMapper.countAllByCode(row.getCode().trim()) == 0) {
+                    p.setCode(row.getCode().trim());
+                } else {
+                    p.setCode(generateProductCode());
+                }
+                productMapper.insert(p);
+                byName.put(name, p);
+                if (p.getCode() != null) byCode.put(p.getCode(), p);
             }
-            productMapper.insert(p);
-            existingNames.add(name);
-            created++;
+            count++;
         }
-        return created;
+        return count;
     }
 
     private synchronized String generateProductCode() {

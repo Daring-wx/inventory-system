@@ -80,10 +80,11 @@ public class WarehouseService {
                 .orderByAsc(Warehouse::getId));
     }
 
-    public List<Warehouse> search(String keyword, Integer level) {
-        LambdaQueryWrapper<Warehouse> wrapper = new LambdaQueryWrapper<Warehouse>()
-                .eq(Warehouse::getStatus, 1)
-                .eq(level != null, Warehouse::getLevel, level);
+    public List<Warehouse> search(String keyword, Integer level, Integer status) {
+        LambdaQueryWrapper<Warehouse> wrapper = new LambdaQueryWrapper<Warehouse>();
+        if (status != null) wrapper.eq(Warehouse::getStatus, status);
+        else wrapper.eq(Warehouse::getStatus, 1);
+        if (level != null) wrapper.eq(Warehouse::getLevel, level);
         if (keyword != null && !keyword.isEmpty()) {
             wrapper.and(w -> w.like(Warehouse::getName, keyword).or().like(Warehouse::getCode, keyword));
         }
@@ -116,11 +117,13 @@ public class WarehouseService {
                 .orderByAsc(Warehouse::getLevel, Warehouse::getId));
     }
 
-    public List<Warehouse> roots() {
-        List<Warehouse> list = warehouseMapper.selectList(new LambdaQueryWrapper<Warehouse>()
-                .eq(Warehouse::getLevel, 1)
+    public List<Warehouse> roots(Integer status) {
+        LambdaQueryWrapper<Warehouse> wrapper = new LambdaQueryWrapper<Warehouse>()
                 .eq(Warehouse::getDeleted, 0)
-                .orderByAsc(Warehouse::getId));
+                .eq(Warehouse::getLevel, 1);
+        if (status != null) wrapper.eq(Warehouse::getStatus, status);
+        wrapper.orderByAsc(Warehouse::getId);
+        List<Warehouse> list = warehouseMapper.selectList(wrapper);
         for (Warehouse w : list) {
             w.setHasChildren(hasChildren(w.getId()));
             enrichStats(w);
@@ -128,11 +131,13 @@ public class WarehouseService {
         return list;
     }
 
-    public List<Warehouse> childrenAll(Long parentId) {
-        List<Warehouse> list = warehouseMapper.selectList(new LambdaQueryWrapper<Warehouse>()
+    public List<Warehouse> childrenAll(Long parentId, Integer status) {
+        LambdaQueryWrapper<Warehouse> wrapper = new LambdaQueryWrapper<Warehouse>()
                 .eq(Warehouse::getParentId, parentId)
-                .eq(Warehouse::getDeleted, 0)
-                .orderByAsc(Warehouse::getId));
+                .eq(Warehouse::getDeleted, 0);
+        if (status != null) wrapper.eq(Warehouse::getStatus, status);
+        wrapper.orderByAsc(Warehouse::getId);
+        List<Warehouse> list = warehouseMapper.selectList(wrapper);
         for (Warehouse w : list) {
             w.setHasChildren(hasChildren(w.getId()));
             enrichStats(w);

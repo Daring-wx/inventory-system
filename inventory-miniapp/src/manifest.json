@@ -1,6 +1,6 @@
 {
     "name" : "进销存管理",
-    "appid" : "wx884e2972a858de74",
+    "appid" : "wxb252be63383cd458",
     "description" : "进销存管理小程序",
     "versionName" : "1.0.0",
     "versionCode" : "100",
@@ -8,7 +8,7 @@
     "app-plus" : {},
     "quickapp" : {},
     "mp-weixin" : {
-        "appid" : "wx884e2972a858de74",
+        "appid" : "wxb252be63383cd458",
         "setting" : {
             "urlCheck" : false,
             "es6" : true,

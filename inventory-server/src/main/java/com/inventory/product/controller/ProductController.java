@@ -120,11 +120,24 @@ public class ProductController {
         ExcelUtil.export(response, voList, "商品导入格式", ProductImportVO.class);
     }
 
-    @Operation(summary = "导出商品")
+    @Operation(summary = "导出商品（支持筛选条件）")
     @GetMapping("/export")
     public void export(HttpServletResponse response,
-                       @RequestParam(required = false) String ids) {
-        List<Product> list = productService.listAll();
+                       @RequestParam(required = false) String ids,
+                       @RequestParam(required = false) String name,
+                       @RequestParam(required = false) String code,
+                       @RequestParam(required = false) Integer status,
+                       @RequestParam(required = false) Boolean alertOnly,
+                       @RequestParam(required = false) Long warehouseId,
+                       @RequestParam(required = false) Long categoryId,
+                       @RequestParam(required = false) java.math.BigDecimal minPrice,
+                       @RequestParam(required = false) java.math.BigDecimal maxPrice,
+                       @RequestParam(required = false) java.math.BigDecimal minSalePrice,
+                       @RequestParam(required = false) java.math.BigDecimal maxSalePrice,
+                       @RequestParam(required = false) String startDate,
+                       @RequestParam(required = false) String endDate) {
+        List<Product> list = productService.listFiltered(name, code, status, alertOnly, warehouseId, categoryId,
+                minPrice, maxPrice, minSalePrice, maxSalePrice, startDate, endDate);
         if (ids != null && !ids.isEmpty()) {
             List<Long> idList = Arrays.stream(ids.split(",")).map(Long::parseLong).collect(Collectors.toList());
             list = list.stream().filter(p -> idList.contains(p.getId())).collect(Collectors.toList());

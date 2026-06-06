@@ -37,11 +37,13 @@ function getParentPath(w: any): string {
 async function fetchTree() {
   loading.value = true
   try {
-    if (query.value.keyword) {
+    if (query.value.keyword || query.value.status !== undefined) {
       isSearchMode.value = true
-      const res = await request.get('/warehouse/search', { params: { keyword: query.value.keyword } })
-      tableData.value = (res.data.data || []).filter((w: any) => query.value.status === undefined || w.status === query.value.status)
-      // 异步加载所有上级名称（递归到根）
+      const params: any = {}
+      if (query.value.keyword) params.keyword = query.value.keyword
+      if (query.value.status !== undefined) params.status = query.value.status
+      const res = await request.get('/warehouse/search', { params })
+      tableData.value = res.data.data || []
       async function loadAncestors(id: number) {
         const node = await loadWhName(id)
         if (node?.parentId) await loadAncestors(node.parentId)
@@ -59,7 +61,9 @@ async function fetchTree() {
 
 async function loadChildren(row: any, _treeNode: any, resolve: (data: any[]) => void) {
   try {
-    const res = await request.get(`/warehouse/children-all/${row.id}`)
+    const params: any = {}
+    if (query.value.status !== undefined) params.status = query.value.status
+    const res = await request.get(`/warehouse/children-all/${row.id}`, { params })
     resolve(res.data.data || [])
   } catch { resolve([]) }
 }
@@ -114,8 +118,13 @@ async function handleSave() {
 }
 async function handleToggleStatus(row: any) {
   const s = row.status === 1 ? 0 : 1
-  await request.put(`/warehouse/${row.id}`, { ...row, status: s })
-  ElMessage.success(s === 1 ? '已启用' : '已停用'); fetchTree()
+  try {
+    await request.put(`/warehouse/${row.id}`, { status: s })
+    row.status = s
+    ElMessage.success(s === 1 ? '已启用' : '已停用')
+    // 状态筛选已启用时，刷新列表使被筛掉的仓库消失
+    if (query.value.status !== undefined) fetchTree()
+  } catch { /* handled by interceptor */ }
 }
 async function handleDelete(row: any) {
   try {
@@ -209,7 +218,7 @@ onMounted(fetchTree)
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="row.level < 4" size="small" type="primary" @click="openCreate(row)">+ 新增子级</el-button>
-            <el-button size="small" :type="row.status === 1 ? 'warning' : 'success'" @click="handleToggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</el-button>
+            <el-button v-if="!row.hasChildren" size="small" :type="row.status === 1 ? 'warning' : 'success'" @click="handleToggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</el-button>
             <el-button v-if="userStore.isAdmin" size="small" type="danger" @click="handleDelete(row)">作废</el-button>
           </template>
         </el-table-column>

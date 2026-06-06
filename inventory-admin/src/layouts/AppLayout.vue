@@ -23,7 +23,8 @@ function handleLogout() { userStore.logout(); router.push('/login') }
     <!-- 侧边栏 - 白底绿字 -->
     <el-aside :width="appStore.sidebarCollapsed ? '64px' : '220px'" class="app-aside">
       <div class="logo">
-        <span class="logo-text">进销存管理</span>
+        <img v-if="appStore.sidebarCollapsed" src="/favicon.svg" alt="logo" class="logo-icon" />
+        <span v-else class="logo-text">进销存管理系统</span>
       </div>
       <el-menu
         :default-active="activeMenu"
@@ -98,10 +99,12 @@ function handleLogout() { userStore.logout(); router.push('/login') }
   height: 56px;
   display: flex;
   align-items: center;
+  justify-content: center;
   padding: 0 20px;
   border-bottom: 1px solid #e8ece8;
 }
-.logo-text { font-size: 16px; font-weight: 700; color: #2e7d32; letter-spacing: 1px; }
+.logo-icon { width: 32px; height: 32px; }
+.logo-text { font-size: 16px; font-weight: 700; color: #2e7d32; letter-spacing: 1px; white-space: nowrap; }
 
 /* 菜单覆盖效果图样式 */
 .el-menu {

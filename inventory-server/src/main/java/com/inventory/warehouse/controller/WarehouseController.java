@@ -34,14 +34,15 @@ public class WarehouseController {
 
     @Operation(summary = "获取根节点仓库（懒加载用）")
     @GetMapping("/roots")
-    public R<List<Warehouse>> roots() {
-        return R.ok(warehouseService.roots());
+    public R<List<Warehouse>> roots(@RequestParam(required = false) Integer status) {
+        return R.ok(warehouseService.roots(status));
     }
 
     @Operation(summary = "获取子级仓库列表（含已停用，懒加载用）")
     @GetMapping("/children-all/{parentId}")
-    public R<List<Warehouse>> childrenAll(@PathVariable Long parentId) {
-        return R.ok(warehouseService.childrenAll(parentId));
+    public R<List<Warehouse>> childrenAll(@PathVariable Long parentId,
+                                           @RequestParam(required = false) Integer status) {
+        return R.ok(warehouseService.childrenAll(parentId, status));
     }
 
     @Operation(summary = "获取子级仓库列表（仅启用）")
@@ -53,8 +54,9 @@ public class WarehouseController {
     @Operation(summary = "搜索仓库")
     @GetMapping("/search")
     public R<List<Warehouse>> search(@RequestParam(required = false) String keyword,
-                                      @RequestParam(required = false) Integer level) {
-        return R.ok(warehouseService.search(keyword, level));
+                                      @RequestParam(required = false) Integer level,
+                                      @RequestParam(required = false) Integer status) {
+        return R.ok(warehouseService.search(keyword, level, status));
     }
 
     @Operation(summary = "查询所有启用的仓库")
